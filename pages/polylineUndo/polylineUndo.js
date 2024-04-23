@@ -1,12 +1,18 @@
 import Stack from './stack';
 import Konva from "konva";
 import { createMachine, interpret } from "xstate";
+import UndoManager from './UndoManager';
+import Command from './Command';
 
 const stage = new Konva.Stage({
     container: "container",
     width: 400,
     height: 400,
 });
+
+const buttonUndo = document.getElementById("undo");
+const buttonRedo = document.getElementById("redo");
+const undoManager = new UndoManager();
 
 // Une couche pour le dessin
 const dessin = new Konva.Layer();
@@ -30,6 +36,19 @@ const polylineMachine = createMachine(
                         target: "onePoint",
                         actions: "createLine",
                     },
+                    UNDO: {
+                        target: "idle",
+                        actions: "undo",
+                        internal: true,
+                        cond: "canUndo"
+                    },
+
+                    REDO: {
+                        target: "idle",
+                        actions: "redo",
+                        internal: true,
+                        cond: "canRedo"
+                    }
                 },
             },
             onePoint: {
@@ -119,7 +138,8 @@ const polylineMachine = createMachine(
                 polyline.points(newPoints);
                 polyline.stroke("black"); // On change la couleur
                 // On sauvegarde la polyline dans la couche de dessin
-                dessin.add(polyline); // On l'ajoute à la couche de dessin
+                buttonUndo.disabled = false;
+                undoManager.execute(new Command(dessin, polyline))
             },
             addPoint: (context, event) => {
                 const pos = stage.getPointerPosition();
@@ -127,6 +147,20 @@ const polylineMachine = createMachine(
                 const newPoints = [...currentPoints, pos.x, pos.y]; // Add the new point to the array
                 polyline.points(newPoints); // Set the updated points to the line
                 temporaire.batchDraw(); // Redraw the layer to reflect the changes
+            },
+            undo: (context, event) => {
+                undoManager.undo()
+                if (!undoManager.canUndo()) {
+                    buttonUndo.disabled = true;
+                }
+                buttonRedo.disabled = false;
+            },
+            redo: (context, event) => {
+                undoManager.redo()
+                if (!undoManager.canRedo()) {
+                    buttonRedo.disabled = true;
+                }
+                buttonUndo.disabled = false;
             },
             abandon: (context, event) => {
                 polyline.remove();
@@ -149,6 +183,14 @@ const polylineMachine = createMachine(
                 // Deux coordonnées pour chaque point, plus le point provisoire
                 return polyline.points().length > 6;
             },
+            canUndo: (context, event) => {
+                // Deux coordonnées pour chaque point, plus le point provisoire
+                return undoManager.canUndo();
+            },
+            canRedo: (context, event) => {
+                // Deux coordonnées pour chaque point, plus le point provisoire
+                return undoManager.canRedo();
+            },
         },
     }
 );
@@ -170,4 +212,12 @@ stage.on("mousemove", () => {
 window.addEventListener("keydown", (event) => {
     console.log("Key pressed:", event.key);
     polylineService.send(event.key);
+});
+
+buttonUndo.addEventListener("click", () => {
+    polylineService.send("UNDO");
+});
+
+buttonRedo.addEventListener("click", () => {
+    polylineService.send("REDO");
 });
